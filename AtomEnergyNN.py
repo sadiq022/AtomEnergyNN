@@ -6,10 +6,12 @@ from ase import Atoms
 from sklearn.preprocessing import StandardScaler
 import torch
 import torch.nn as nn
-import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset, random_split
 import torch.nn.utils.rnn as rnn_utils
 from sklearn.preprocessing import StandardScaler
+import torch.optim as optim
+import matplotlib.pyplot as plt
+import time
 
 scaler = StandardScaler()
 S_min = -1
@@ -50,7 +52,7 @@ acsf_descriptors = []
 target_energies = []
 
 # for i in range(len(p_f)):
-for i in range(1000):
+for i in range(10000):
     pmg_structure = Structure.from_dict(p_f[i]['structure'])
     energy = p_f[i]['energy']
     forces = p_f[i]['forces']
@@ -114,59 +116,76 @@ model = AtomEnergyNN(input_size, hidden_size_1, hidden_size_2, output_size)
 
 # Define the loss function and optimizer
 criterion = torch.nn.MSELoss()  # Mean Squared Error loss
-# optimizer = optim.Adam(model.parameters(), lr=0.01)  # Adam optimizer
-optimizer = optim.SGD(model.parameters(), lr=0.1)
-
-# Define your loss function, for example:
-loss_function = torch.nn.MSELoss()
 requires_grad = True
+
+optimizer = optim.Adam(model.parameters(), lr=0.001)  # Adam optimizer
+# optimizer = optim.SGD(model.parameters(), lr=0.001)     #SGD optimizer
 
 # Define batch size
 batch_size = 100  # Adjust as needed
 
 # Define number of epochs
-num_epochs = 10  # Adjust as needed
+num_epochs = 50  # Adjust as needed
+# Initialize list to store losses
+epoch_losses = []
+epoch_times = []
 
 # Training loop with epochs and batch training
 for epoch in range(num_epochs):
+    epoch_loss = 0
     batch_no = 0
+    start_time = time.time()
     # Iterate over the data in batches within each epoch
     for batch_start in range(0, len(padded_acsf_tensor), batch_size):
-        # Zero the gradients
-        optimizer.zero_grad()
         batch_no += 1
+        loss = 0
         batch_end = min(batch_start + batch_size, len(padded_acsf_tensor))
         batch_acsf_tensor = padded_acsf_tensor[batch_start:batch_end]
 
-        # Compute total energy for each structure in the batch
-        total_energies = []
-        target_total_energies = []
         for struct_acsf_tensor, target_energy in zip(batch_acsf_tensor, target_energies[batch_start:batch_end]):
+            total_energy = 0
             struct_acsf_tensor = struct_acsf_tensor[struct_acsf_tensor.any(dim=1)]
-            total_energy = model(struct_acsf_tensor).sum().item()
-            total_energies.append(total_energy)
-            target_total_energies.append(target_energy.item())
+            total_energy = model(struct_acsf_tensor).sum()
+            loss += (target_energy - total_energy)**2
 
             # Print predicted and actual energies for each structure
-            print(f"Epoch {epoch + 1}/{num_epochs} Batch {batch_no}")
-            print('Predicted Energy and actual energy:', total_energy, target_energy.item())
+#             print(f"Epoch {epoch + 1}/{num_epochs} Batch {batch_no}")
+#             print('Predicted Energy and actual energy:', total_energy, target_energy)
+        
+        loss = loss/(2*batch_size)
+#         print('Loss:', loss)
 
-        # Compute loss for the batch
-        predicted_energies = torch.tensor(total_energies, dtype=torch.float32, requires_grad = True)
-        target_energies_batch = torch.tensor(target_total_energies, dtype=torch.float32)
-        loss = criterion(predicted_energies, target_energies_batch)
-        print('Loss:', loss.item())
-
-        # Check if gradients are being computed for fc1.weight
-        for name, param in model.named_parameters():
-            if name == 'fc2.weight':
-                print(name, param.data)  # Ensure that fc1.weight requires gradients
-
-#         # Zero the gradients
-#         optimizer.zero_grad()
+        # Zero the gradients
+        optimizer.zero_grad()
         
         # Backpropagation
         loss.backward()
 
         # Update the weights
         optimizer.step()
+        epoch_loss += loss.item()
+        
+    end_time = time.time()  # Record end time for epoch
+    epoch_time = end_time - start_time  # Calculate epoch time
+    # Save the epoch loss
+    epoch_losses.append(epoch_loss)
+    epoch_times.append(epoch_time)
+    
+    print(f"Epoch {epoch + 1}/{num_epochs}, Total Loss: {epoch_loss}, Time: {epoch_time:.2f} seconds")
+
+# Plot the losses
+plt.plot(range(1, num_epochs + 1), epoch_losses, label='Training Loss')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.title('Training Loss Over Epochs')
+plt.legend()
+plt.show()
+
+# Plot the epoch times
+plt.figure(figsize=(10, 5))
+plt.plot(range(1, num_epochs + 1), epoch_times, color='tab:red', label='Epoch Time')
+plt.xlabel('Epochs')
+plt.ylabel('Time (seconds)')
+plt.title('Epoch Time Over Epochs')
+plt.legend()
+plt.show()
