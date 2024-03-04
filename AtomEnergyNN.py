@@ -189,3 +189,24 @@ plt.ylabel('Time (seconds)')
 plt.title('Epoch Time Over Epochs')
 plt.legend()
 plt.show()
+
+# Save the model
+torch.save({
+    'model_state_dict': model.state_dict(),
+    'optimizer_state_dict': optimizer.state_dict(),
+    # You can save additional information if needed
+}, 'acsf_model.pth')
+
+# Load the model
+loaded_model = AtomEnergyNN(8, 16, 16, 1)
+checkpoint = torch.load('acsf_model.pth')
+loaded_model.load_state_dict(checkpoint['model_state_dict'])
+loaded_model.eval()  # Set the model to evaluation mode
+
+i = 1
+input_data = padded_acsf_tensor[i]
+input_data = input_data[input_data.sum(dim=1) != 0]
+
+# Now we can use the loaded_model for predictions
+output = loaded_model(input_data).sum()
+print(f"Predicted Energy is {output} and actual energy is {target_energies[i]}")
